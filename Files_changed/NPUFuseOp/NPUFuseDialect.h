@@ -30,6 +30,9 @@ inline void registerNPUFuseOpDialects(mlir::DialectRegistry &registry) {
   registerNPUFuseOpBufferizableOpInterfaceExternalModels(registry);
 }
 
+// Convenience helper to register the dialect into a context.
+void registerNPUFuseDialect(mlir::MLIRContext *context);
+
 } // namespace NPUFuseOp
 } // namespace Dialect
 } // namespace compiler

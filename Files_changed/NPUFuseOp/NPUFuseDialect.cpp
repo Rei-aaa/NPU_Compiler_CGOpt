@@ -25,13 +25,12 @@ NPUFuseDialect::NPUFuseDialect(MLIRContext *context)
   >();
 }
 
+void registerNPUFuseDialect(mlir::MLIRContext *context) {
+  context->getOrLoadDialect<mlir::iree::compiler::Dialect::NPUFuseOp::NPUFuseDialect>();
+}
+
 } // namespace NPUFuseOp
 } // namespace Dialect
 } // namespace compiler
 } // namespace iree
 } // namespace mlir
-
-//extern "C"
-void registerNPUFuseDialect(mlir::MLIRContext *context) {
-  context->getOrLoadDialect<mlir::iree::compiler::Dialect::NPUFuseOp::NPUFuseDialect>();
-}
