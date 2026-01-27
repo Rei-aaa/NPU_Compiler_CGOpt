@@ -253,15 +253,6 @@ GlobalInit::GlobalInit() : threadPool(getGlobalThreadPoolStrategy()) {
   // MLIRContext registration and hooks.
   mlir::iree_compiler::registerAllDialects(registry);
   mlir::iree_compiler::registerLLVMIRTranslations(registry);
-
-  //--------------------------- 12.8 ----------------------------
-  // Register the NPUFuse dialect so it is available in the global registry
-
-  {
-    using mlir::iree::compiler::Dialect::NPUFuseOp::registerNPUFuseOpDialects;
-    registerNPUFuseOpDialects(registry);
-  }
-  //----------------------------------------------------------------
   
   if (!pluginManager.loadAvailablePlugins()) {
     fprintf(stderr, "Failed to initialize IREE compiler plugins.\n");
