@@ -25,6 +25,8 @@ NPUFuseOps.td
 
 
 
+
+
 改动了iree\compiler\src\iree\compiler\API\Internal\CompilerDriver.cpp
 
 (Files_changed/CompilerDriver)
@@ -33,20 +35,6 @@ NPUFuseOps.td
 
 ```cpp
 #include "iree/compiler/Dialect/NPUFuseOp/NPUFuseDialect.h"
-```
-
-246 行左右，GlobalInit中新加一段
-
-```cpp
-GlobalInit::GlobalInit() : threadPool(getGlobalThreadPoolStrategy()) {
-	......
-// Register the NPUFuse dialect so it is available in the global registry
-  {
-    using mlir::iree::compiler::Dialect::NPUFuseOp::registerNPUFuseOpDialects;
-    registerNPUFuseOpDialects(registry);
-  }
-  	......
-}
 ```
 
 406行左右，添加到上下文，Session: 
@@ -67,6 +55,8 @@ Session::Session(GlobalInit &globalInit)
 
 
 
+
+
 改动了iree\compiler\src\iree\compiler\API\CMakeLists.txt 新加一行 ：
 
 (Files_changed/CMakeLists)
@@ -74,6 +64,8 @@ Session::Session(GlobalInit &globalInit)
 ```cpp
 list(APPEND _EXPORT_OBJECT_LIBS "iree_compiler_Dialect_NPUFuseOp_IR.objects")
 ```
+
+
 
 
 
@@ -130,6 +122,8 @@ FuseConvVecFunc.h
 
 
 
+
+
 改动了iree\compiler\src\iree\compiler\Codegen\LLVMCPU\CMakeLists.txt
 
 ```cpp
@@ -147,6 +141,8 @@ iree_cc_library(
     "FuseConvVecOp.cpp"
     ...
 ```
+
+
 
 
 
@@ -170,11 +166,15 @@ def FuseConvVecOp :
 
 
 
+
+
 改动了iree\compiler\src\iree\compiler\Codegen\LLVMCPU\Passes.h
 
 ```
 #include "iree/compiler/Codegen/LLVMCPU/FuseConvVecOp.h"
 ```
+
+
 
 
 
@@ -217,6 +217,8 @@ void addMultiTilingExpertPassPipeline(OpPassManager &passManager,
       }
 
 ```
+
+
 
 
 
@@ -265,6 +267,8 @@ static void rewriteNpuFuseOpToCall(IRRewriter &rewriter, MLIRContext *context,
     }
   };
 ```
+
+
 
 
 
