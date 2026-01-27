@@ -1,6 +1,6 @@
 include "mlir/IR/OpBase.td"
 
-// NPUFuse 接口
+// NPUFuseOp 接口
 def NPUFuseOpCallableInterface : OpInterface<"NPUFuseOpCallableInterface"> {
   let description = [{
   Exposes NPU fused op calling conventions to lowering passes: provides
@@ -63,7 +63,7 @@ class NPUFuseOp_Op<string mnemonic, list<Trait> traits = []> :
     Op<NPUFuseOp_Dialect, mnemonic, traits>;
 
 // Fused conv + add + relu op 
-def ConvAddReluOp : NPUFuseOp_Op<"conv_add_relu", [NPUFuseOpCallableInterface, DestinationStyle]> {
+def ConvAddReluOp : NPUFuseOp_Op<"conv_add_relu", [NPUFuseOpCallableInterface]> {
   let summary = "Fused convolution + add + relu";
   let description = [{
     Fuse a convolution, bias add, and relu into a single op. The op accepts
@@ -104,7 +104,7 @@ def ConvAddReluOp : NPUFuseOp_Op<"conv_add_relu", [NPUFuseOpCallableInterface, D
 }
  
 // Fused conv + add + batchnorm + relu op
-def ConvAddBnReluOp : NPUFuseOp_Op<"conv_add_bn_relu", [NPUFuseOpCallableInterface, DestinationStyle]> {
+def ConvAddBnReluOp : NPUFuseOp_Op<"conv_add_bn_relu", [NPUFuseOpCallableInterface]> {
   let summary = "Fused convolution + add + batchnorm + relu";
   let description = [{
     Fuse a convolution, element-wise add/bias, batch normalization, and relu into

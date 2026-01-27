@@ -25,12 +25,16 @@ class ConvertNPUCallOpPattern : public OpRewritePattern<func::CallOp> {
     private:
     LogicalResult matchAndRewrite(func::CallOp callOp,
             PatternRewriter &rewriter) const override {
+        llvm::dbgs() << "ConvertNPUCallOpPattern: matchAndRewrite\n";
+
         if (!callOp.getCallee().contains("npu_")) {
+            llvm::dbgs() << "Not an NPU call, skipping\n";
             return failure();
         }
 
         auto context = callOp.getContext();
         Location loc = callOp.getLoc();
+        auto module = callOp.getOperation()->getParentOfType<ModuleOp>();
 
         SmallVector<Value> operands;
         SmallVector<Value> newOperands;
@@ -38,15 +42,26 @@ class ConvertNPUCallOpPattern : public OpRewritePattern<func::CallOp> {
             operands.push_back(operand);
         }
 
+        module.dump();
+        llvm::dbgs() << "\n\n";
+
         // convert memref to llvm ptr as new operands
         Type llvmptrType = LLVM::LLVMPointerType::get(context);
         for (Value operand : operands) {
+            llvm::dbgs() << "operand:\n";
+            operand.dump();
             Value structOperand = operand.getDefiningOp()->getOperand(0);
+            structOperand.dump();
             Value alignedPtr = rewriter.create<LLVM::ExtractValueOp>(
                 loc, llvmptrType, structOperand, 1);
             newOperands.push_back(alignedPtr);
             operand.replaceAllUsesWith(alignedPtr);
+            alignedPtr.dump();
         }
+
+        llvm::dbgs() << "operands converted!\n\n";
+
+        module.dump();
 
         // CallOp Creation
         auto newCallOp = rewriter.create<LLVM::CallOp>(
@@ -77,6 +92,7 @@ class ConvertNPUCallOpPattern : public OpRewritePattern<func::CallOp> {
 
         Value zero = rewriter.create<LLVM::ConstantOp>(loc, i64Type, 0);
 
+        llvm::dbgs() << "UndefOp dump!\n";
         Value structValue = rewriter.create<LLVM::UndefOp>(loc, structType);
         structValue = rewriter.create<LLVM::InsertValueOp>(loc, structValue, returnedPtr,
             rewriter.getDenseI64ArrayAttr({0}));
@@ -84,6 +100,8 @@ class ConvertNPUCallOpPattern : public OpRewritePattern<func::CallOp> {
             rewriter.getDenseI64ArrayAttr({1}));
         structValue = rewriter.create<LLVM::InsertValueOp>(loc, structValue, zero,
             rewriter.getDenseI64ArrayAttr({2}));
+
+        structValue.dump();
 
         int64_t stride = 1;
         ArrayRef<int64_t> shapes = memrefType.getShape();
@@ -103,6 +121,9 @@ class ConvertNPUCallOpPattern : public OpRewritePattern<func::CallOp> {
 
         callOp.getResult(0).replaceAllUsesWith(structValue);
         rewriter.eraseOp(callOp);
+
+        structValue.dump();
+        module.dump();
 
         for (Value operand : operands) {
             rewriter.eraseOp(operand.getDefiningOp());
