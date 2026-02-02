@@ -270,7 +270,7 @@ static void rewriteNpuFuseOpToCall(IRRewriter &rewriter, MLIRContext *context,
 
 
 
-
+改动了iree\compiler\src\iree\compiler\Codegen\LLVMCPU\ConvertToLLVM.cpp
 
 改动了iree\compiler\src\iree\compiler\Codegen\LLVMCPU\ConvertNPUOps.cpp
 
