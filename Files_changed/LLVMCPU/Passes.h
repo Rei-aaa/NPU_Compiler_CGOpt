@@ -29,6 +29,8 @@ std::unique_ptr<Pass> createCIMWiseTiledConvPass();
 std::unique_ptr<Pass> createCIMWiseKernelDispatchPass();
 std::unique_ptr<OperationPass<ModuleOp>>
 createConvertNPUOpsPass();
+std::unique_ptr<OperationPass<ModuleOp>>
+createConvertNPUUnaryOpsToCallsPass();
 
 // createCIMWiseKernelDispatchPass();
 

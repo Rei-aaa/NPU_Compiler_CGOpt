@@ -53,6 +53,7 @@ iree_cc_library(
     "CIMWiseKernelDispatch.cpp"
     "CIMWiseTiledConvPass.cpp"
     "ConvertNPUOps.cpp"
+    "ConvertNPUUnaryOpsToCalls.cpp"
     "ConvertToLLVM.cpp"
     "DispatchABI.cpp"
     "FuseConvVecFunc.cpp"

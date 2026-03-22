@@ -15,8 +15,9 @@
 namespace mlir::iree_compiler {
 
 /// 创建用于融合卷积后续 Add/Relu 链的 Pass，
-/// 将 "linalg.conv_2d_nchw_fchw" 重写为 "npufuseop.conv_add_relu"。
-std::unique_ptr<OperationPass<func::FuncOp>> createFuseConvVecOpPass();
+/// 将 "linalg.conv_2d_nchw_fchw" 重写为 "npuop.conv_add"。
+std::unique_ptr<OperationPass<func::FuncOp>>
+createFuseConvVecOpPass(bool enableFastMath = false);
 
 } // namespace mlir::iree_compiler
 

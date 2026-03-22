@@ -238,10 +238,10 @@ def CIMWiseTiledConv :
 
 def FuseConvVecOp :
     Pass<"fuse-conv-vec-op", "func::FuncOp"> {
-  let summary = "Fuse linalg.conv_2d_nchw_fchw + add + relu chains";
+  let summary = "Fuse linalg.conv_2d_nchw_fchw + element-wise op chains";
   let description = [{
-    Detects a linalg.conv_2d_nchw_fchw followed by add/relu generics and
-    replaces the chain with a npufuseop.conv_add_relu op that encodes the
+    Detects a linalg.conv_2d_nchw_fchw followed by generics and
+    replaces the chain with a npuop.conv_2d op that encodes the
     combined semantics for downstream lowering.
   }];
   let constructor = "mlir::iree_compiler::createFuseConvVecOpPass()";

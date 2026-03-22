@@ -48,6 +48,7 @@ iree_compiler_cc_library(
     name = "LLVMCPU",
     srcs = [
         "ConvertToLLVM.cpp",
+        "ConvertNPUUnaryOpsToCalls.cpp",
         "DispatchABI.cpp",
         "FuseConvVecFunc.cpp",
         "FuseConvVecOp.cpp",

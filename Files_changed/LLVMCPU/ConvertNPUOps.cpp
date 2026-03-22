@@ -172,18 +172,10 @@ public:
 };
 } // namespace
 
-///////////////////////////////////////////////////////////////
-//                     Pattern Registration                  //
-///////////////////////////////////////////////////////////////
-
 void populateNPUOpsPatterns(RewritePatternSet &patterns) {
     patterns.add<ConvertNPUFuncOpPattern,
         ConvertNPUCallOpPattern>(patterns.getContext());
 }
-
-///////////////////////////////////////////////////////////////
-//                     Convert NPU Pass                      //
-///////////////////////////////////////////////////////////////
 
 struct ConvertNPUOpsPass
         : public PassWrapper<ConvertNPUOpsPass, OperationPass<ModuleOp>> {
