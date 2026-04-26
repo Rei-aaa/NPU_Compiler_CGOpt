@@ -52,7 +52,7 @@
 #include "iree/compiler/Utils/TracingUtils.h"
 #include "iree/compiler/embedding_api.h"
 #include "iree/compiler/mlir_interop.h"
-#include "iree/compiler/Dialect/NPUFuseOp/NPUFuseDialect.h"
+#include "iree/compiler/Dialect/NPUOp/NPUDialect.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -253,6 +253,8 @@ GlobalInit::GlobalInit() : threadPool(getGlobalThreadPoolStrategy()) {
   // MLIRContext registration and hooks.
   mlir::iree_compiler::registerAllDialects(registry);
   mlir::iree_compiler::registerLLVMIRTranslations(registry);
+
+
   
   if (!pluginManager.loadAvailablePlugins()) {
     fprintf(stderr, "Failed to initialize IREE compiler plugins.\n");
@@ -400,7 +402,7 @@ Session::Session(GlobalInit &globalInit)
       pluginSession(globalInit.pluginManager, binder, pluginManagerOptions) {
   context.allowUnregisteredDialects();
   context.appendDialectRegistry(globalInit.registry);
-  context.getOrLoadDialect<mlir::iree::compiler::Dialect::NPUFuseOp::NPUFuseDialect>();
+  context.getOrLoadDialect<mlir::iree::compiler::Dialect::NPUOp::NPUDialect>();
 
   // Bootstrap session options from the cl environment, if enabled.
   if (globalInit.usesCommandLine) {

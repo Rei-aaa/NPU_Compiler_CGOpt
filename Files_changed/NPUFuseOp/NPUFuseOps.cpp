@@ -5,6 +5,18 @@
 #include "mlir/IR/Builders.h"
 #include <utility>
 
+namespace mlir::iree::compiler::Dialect::NPUFuseOp {
+
+MutableOperandRange LayerNormOp::getDpsInitsMutable() {
+  return MutableOperandRange(getOutputInitMutable());
+}
+
+MutableOperandRange SoftmaxOp::getDpsInitsMutable() {
+  return MutableOperandRange(getOutputInitMutable());
+}
+
+} // namespace mlir::iree::compiler::Dialect::NPUFuseOp
+
 // clang-format off
 #include "iree/compiler/Dialect/NPUFuseOp/NPUFuseOpsInterfaces.cpp.inc"
 

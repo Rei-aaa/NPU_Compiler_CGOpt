@@ -12,7 +12,7 @@
 #ifndef IREE_COMPILER_TOOLS_INIT_DIALECTS_H_
 #define IREE_COMPILER_TOOLS_INIT_DIALECTS_H_
 
-#include "iree/compiler/Dialect/NPUFuseOp/NPUFuseDialect.h"
+#include "iree/compiler/Dialect/NPUOp/NPUDialect.h"
 #include "iree/compiler/Tools/init_compiler_modules.h"
 #include "iree/compiler/Tools/init_iree_dialects.h"
 #include "iree/compiler/Tools/init_mlir_dialects.h"
@@ -22,8 +22,7 @@ namespace mlir::iree_compiler {
 inline void registerAllDialects(DialectRegistry &registry) {
   registerMlirDialects(registry);
   registerIreeDialects(registry);
-  mlir::iree::compiler::Dialect::NPUFuseOp::registerNPUFuseOpDialects(
-      registry);
+  mlir::iree::compiler::Dialect::NPUOp::registerNPUOpDialects(registry);
 
   mlir::iree_compiler::registerIreeCompilerModuleDialects(registry);
 }

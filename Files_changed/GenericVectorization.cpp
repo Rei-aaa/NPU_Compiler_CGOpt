@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/StringExtras.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -39,24 +40,69 @@ namespace mlir::iree_compiler {
 namespace {
 
 ///////////////////////////////////////////////////////////////
-//                       NPU Fuse Helper                     //
-//           Build external call + operand role attrs         //
+//                      NPU Conv2D Helper                    //
 ///////////////////////////////////////////////////////////////
+// 继承原本的conv2d属性信息
+// Keep NPU metadata on the lowered call so downstream codegen/runtime can
+// read fused activation and operand-role information from call attributes.
+static void forwardNpuConvAttrs(Operation *fromOp, Operation *toOp) {
+  for (NamedAttribute attr : fromOp->getAttrs()) {
+    StringRef name = attr.getName().strref();
+    if (name.starts_with("npu.") || name == "fused_op_info") {
+      toOp->setAttr(name, attr.getValue());
+    }
+  }
+}
 
-template <typename NpuOpT>
-static void rewriteNpuFuseOpToCall(IRRewriter &rewriter, MLIRContext *context,
-                                   NpuOpT npuOp) {
+//重写函数名称，防止后融合算子函数声明出现冲突
+// rewrite function name to avoid collisions between different fused conv calls
+static std::string sanitizeSymbolFragment(StringRef input) {
+  std::string out;
+  out.reserve(input.size());
+  for (char c : input) {
+    if (llvm::isAlnum(c)) {
+      out.push_back(c);
+    } else {
+      out.push_back('_');
+    }
+  }
+  return out;
+}
+
+// Build a deterministic call symbol from fused NPU metadata to reduce
+// collisions between different conv fusion variants.
+static std::string buildNpuConvCallName(
+  mlir::iree::compiler::Dialect::NPUFuseOp::Conv2DOp convOp) {
+  std::string name = "npu_conv_2d";
+
+  if (auto fusedInfo = convOp->getAttrOfType<ArrayAttr>("fused_op_info")) {
+    for (Attribute attr : fusedInfo) {
+      auto dict = attr.dyn_cast<DictionaryAttr>();
+      if (!dict)
+        continue;
+      auto role = dict.getAs<StringAttr>("role");
+      if (!role)
+        continue;
+      name += "_";
+      name += sanitizeSymbolFragment(role.getValue());
+    }
+  }
+
+  return name;
+}
+
+static void rewriteNpuConv2DToCall(IRRewriter &rewriter, MLIRContext *context,
+                                   mlir::iree::compiler::Dialect::NPUFuseOp::Conv2DOp convOp) {
   SmallVector<Type> callArgumentTypes;
   SmallVector<Type> callReturnTypes;
   SmallVector<Value> operandsRange;
 
-  auto loc = npuOp.getLoc();
-  rewriter.setInsertionPoint(npuOp);
+  auto loc = convOp.getLoc();
+  rewriter.setInsertionPoint(convOp);
 
-  // 处理操作数，TensorType -> MemRefType
-  auto operands = npuOp->getOperands();
-  for (int i = 0; i < static_cast<int>(operands.size()) - 1; i++) {
-    auto operand = operands[i];
+  // Convert all npufuseop.conv_2d inputs from tensor to memref for external call.
+  auto operands = convOp->getOperands();
+  for (Value operand : operands) {
     auto tensorType = llvm::cast<TensorType>(operand.getType());
     auto memrefType = MemRefType::get(tensorType.getShape(),
                                       tensorType.getElementType());
@@ -66,78 +112,45 @@ static void rewriteNpuFuseOpToCall(IRRewriter &rewriter, MLIRContext *context,
     callArgumentTypes.push_back(memrefType);
   }
 
-  // 处理结果，TensorType -> MemRefType
-  for (Type returnType : npuOp->getResultTypes()) {
+  // Convert call result types back to memref-compatible signatures.
+  for (Type returnType : convOp->getResultTypes()) {
     auto tensorType = llvm::cast<TensorType>(returnType);
     auto memrefType =
         MemRefType::get(tensorType.getShape(), tensorType.getElementType());
     callReturnTypes.push_back(memrefType);
   }
 
-  // 函数类型function op type
   auto functionType =
       rewriter.getFunctionType(callArgumentTypes, callReturnTypes);
 
-  // 调用 npu 外部函数（统一到 npu_conv_1d），并在属性中标记每个操作数的角色与位置
-  StringRef fnName = "npu_conv_1d";
-  auto makeRoleAttr = [&](StringRef role, unsigned idx) {
-    return rewriter.getDictionaryAttr({
-        rewriter.getNamedAttr("role", rewriter.getStringAttr(role)),
-        rewriter.getNamedAttr("index", rewriter.getI32IntegerAttr(idx)),
-    });
-  };
-  auto addRoleIfValid = [&](SmallVectorImpl<Attribute> &attrs, StringRef role,
-                            int idx) {
-    if (idx >= 0 && static_cast<size_t>(idx) < operands.size())
-      attrs.push_back(makeRoleAttr(role, static_cast<unsigned>(idx)));
-  };
+  std::string fnNameStorage = buildNpuConvCallName(convOp);
+  StringRef fnName = fnNameStorage;
 
-  SmallVector<Attribute> operandRoleAttrs;
-  addRoleIfValid(operandRoleAttrs, "input", npuOp.getInputOperandIndex());
-  addRoleIfValid(operandRoleAttrs, "filter", npuOp.getFilterOperandIndex());
-  addRoleIfValid(operandRoleAttrs, "bias", npuOp.getBiasOperandIndex());
-  addRoleIfValid(operandRoleAttrs, "bn_mean", npuOp.getBnMeanOperandIndex());
-  addRoleIfValid(operandRoleAttrs, "bn_variance",
-                 npuOp.getBnVarianceOperandIndex());
-  addRoleIfValid(operandRoleAttrs, "bn_scale", npuOp.getBnScaleOperandIndex());
-  addRoleIfValid(operandRoleAttrs, "bn_offset",
-                 npuOp.getBnOffsetOperandIndex());
-  addRoleIfValid(operandRoleAttrs, "outs", npuOp.getOutsOperandIndex());
-
-  SmallVector<NamedAttribute> callAttrs;
-  if (!operandRoleAttrs.empty())
-    callAttrs.push_back(rewriter.getNamedAttr(
-        "npu.operands", rewriter.getArrayAttr(operandRoleAttrs)));
-
-  // 定位或创建外部被调用函数
-  auto moduleOp = SymbolTable::getNearestSymbolTable(npuOp);
+  // Find or create external function declaration.
+  auto moduleOp = SymbolTable::getNearestSymbolTable(convOp);
   auto fnDecl = dyn_cast_or_null<func::FuncOp>(
       SymbolTable::lookupSymbolIn(moduleOp, fnName));
   if (!fnDecl) {
-    // 插入点设置到module开头
     rewriter.setInsertionPointToStart(&moduleOp->getRegion(0).front());
-    // 外部链接
     auto linkageAttr =
         LLVM::LinkageAttr::get(rewriter.getContext(), LLVM::Linkage::External);
     SmallVector<NamedAttribute> funcAttrs;
     funcAttrs.push_back(rewriter.getNamedAttr("llvm.linkage", linkageAttr));
-    // 创建函数
     fnDecl = rewriter.create<func::FuncOp>(loc, fnName, functionType, funcAttrs);
     SymbolTable::setSymbolVisibility(fnDecl, SymbolTable::Visibility::Private);
   }
 
-  // 恢复插入点，调用创建函数
-  rewriter.setInsertionPoint(npuOp);
+  rewriter.setInsertionPoint(convOp);
   auto symbolRef = mlir::SymbolRefAttr::get(context, fnName);
   auto newOp = rewriter.create<func::CallOp>(loc, callReturnTypes, symbolRef,
                                              operandsRange);
-  if (!callAttrs.empty())
-    newOp->setAttrs(callAttrs);
-  // memref类型转换回Tensor类型
+  forwardNpuConvAttrs(convOp.getOperation(), newOp.getOperation());
+
+  // Convert memref call result back to tensor to preserve IR contract.
   Value outputOperand = newOp.getResult(0);
   auto newOutput =
       rewriter.create<bufferization::ToTensorOp>(loc, outputOperand, true);
-  rewriter.replaceOp(npuOp, newOutput);
+  rewriter.replaceOp(convOp, newOutput);
 }
 ////////////////////////////////////////////////////////////////////////////
 
@@ -278,9 +291,7 @@ void GenericVectorizationPass::runOnOperation() {
     if (isa<linalg::LinalgOp>(op))
     // NPUFuseOps
       candidates.push_back(op);
-    if (isa<mlir::iree::compiler::Dialect::NPUFuseOp::ConvAddReluOp>(op))
-      candidates.push_back(op);
-    if (isa<mlir::iree::compiler::Dialect::NPUFuseOp::ConvAddBnReluOp>(op))
+    if (isa<mlir::iree::compiler::Dialect::NPUFuseOp::Conv2DOp>(op))
       candidates.push_back(op);
     if (vectorizePadding && enableVectorMasking && isa<tensor::PadOp>(op))
       candidates.push_back(op);
@@ -290,6 +301,13 @@ void GenericVectorizationPass::runOnOperation() {
   for (Operation *op : candidates) {
     SmallVector<int64_t> vectorSizes;
     SmallVector<bool> scalableVecDims;
+
+    // Handle already-fused NPU conv directly and skip generic vectorization
+    // logic that is only meaningful for linalg/tensor pad ops.
+    if (auto convOp = dyn_cast<mlir::iree::compiler::Dialect::NPUFuseOp::Conv2DOp>(op)) {
+      rewriteNpuConv2DToCall(rewriter, context, convOp);
+      continue;
+    }
 
     if ((isa<linalg::Mmt4DOp>(op))){
       llvm::dbgs() << "\nThe op is related to mmt4d\n";
@@ -611,22 +629,6 @@ void GenericVectorizationPass::runOnOperation() {
     (void)linalg::vectorize(rewriter, op, vectorSizes, scalableVecDims,
                             vectorizeGatherAccesses);
     
-    ///////////////////////////////////////////////////////////////
-    //                       NPU Fuse OP                         //
-    //                Call Accelerator CONV2D API                //
-    ///////////////////////////////////////////////////////////////
-    // 支持的fuse pattern
-    if (isa<mlir::iree::compiler::Dialect::NPUFuseOp::ConvAddReluOp>(op)) {
-      if (auto convOp = dyn_cast<mlir::iree::compiler::Dialect::NPUFuseOp::ConvAddReluOp>(op))
-        rewriteNpuFuseOpToCall(rewriter, context, convOp);
-      continue;
-    }
-
-    if (isa<mlir::iree::compiler::Dialect::NPUFuseOp::ConvAddBnReluOp>(op)) {
-      if (auto convOp = dyn_cast<mlir::iree::compiler::Dialect::NPUFuseOp::ConvAddBnReluOp>(op))
-        rewriteNpuFuseOpToCall(rewriter, context, convOp);
-      continue;
-    }
   };
 
   {

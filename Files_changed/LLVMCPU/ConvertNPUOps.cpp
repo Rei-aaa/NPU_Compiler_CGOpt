@@ -3,6 +3,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h" 
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/SymbolTable.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "iree/compiler/Codegen/LLVMCPU/Passes.h"
@@ -147,6 +148,21 @@ public:
             return failure();
         }
 
+        auto module = op->getParentOfType<ModuleOp>();
+        if (!module) {
+            return failure();
+        }
+
+        // Reuse an existing symbol if it is already present in the same module.
+        if (auto existingOp = SymbolTable::lookupSymbolIn(module, op.getNameAttr())) {
+            if (auto existing = dyn_cast<LLVM::LLVMFuncOp>(existingOp)) {
+                SymbolTable::setSymbolVisibility(existing,
+                                                 SymbolTable::Visibility::Private);
+                rewriter.eraseOp(op);
+                return success();
+            }
+        }
+
         auto llvmPtrType = LLVM::LLVMPointerType::get(rewriter.getContext());
 
         // Create LLVM function type with the same number of operands as the original FuncOp.
@@ -156,6 +172,8 @@ public:
         rewriter.setInsertionPoint(op);
         auto newFunc = rewriter.create<LLVM::LLVMFuncOp>(op.getLoc(),
             op.getName(), llvmFuncType, LLVM::Linkage::External);
+        SymbolTable::setSymbolVisibility(newFunc,
+                                         SymbolTable::Visibility::Private);
 
         // Preserve non-signature attributes (e.g., npu metadata) on the LLVM function.
         for (auto attr : op->getAttrs()) {

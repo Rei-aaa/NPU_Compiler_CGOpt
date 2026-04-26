@@ -67,10 +67,16 @@ static llvm::cl::opt<bool> clEnableReassociateFpReductions(
     llvm::cl::desc("Enables reassociation for FP reductions"),
     llvm::cl::init(true));
 
-static llvm::cl::opt<bool> clEnableNpuOpFastMath(
-  "iree-llvmcpu-npuop-fast-math",
-  llvm::cl::desc("Enable fast-math for npuop fused conv chains"),
+static llvm::cl::opt<bool> clEnableNpuFuseOpFastMath(
+  "iree-llvmcpu-npufuseop-fast-math",
+  llvm::cl::desc("Enable fast-math for npufuseop fused conv chains"),
   llvm::cl::init(false));
+
+static llvm::cl::opt<bool> clEnableFuseConvVecOpPass(
+  "iree-llvmcpu-enable-fuse-conv-vec-pass",
+  llvm::cl::desc(
+    "Enable insertion of FuseConvVecOpPass after LLVMCPUTileAndFusePass"),
+  llvm::cl::init(true));
 
 static llvm::cl::opt<bool> clSkipIntermediateRoundings(
     "iree-llvmcpu-skip-intermediate-roundings",
@@ -98,8 +104,10 @@ static void addTileAndDistributePasses(OpPassManager &pm) {
   pm.addPass(createTileAndDistributeToWorkgroupsPass());
 
   auto &nestedModulePM = pm.nest<ModuleOp>();
-  // Rewrite npuop.layer_norm/softmax before DPS conversion to avoid
-  // CPUDefault pipeline failures on unhandled tensor ops.
+  // maybe not needed
+  // Rewrite standalone npufuseop.layer_norm/softmax to func.call before DPS
+  // conversion so bufferization does not see unsupported tensor ops.
+  // nestedModulePM.addPass(createConvertNPUUnaryOpsToCallsPass());
   nestedModulePM.addNestedPass<func::FuncOp>(
       createConvertToDestinationPassingStylePass());
   nestedModulePM.addNestedPass<func::FuncOp>(
@@ -389,8 +397,10 @@ void addMultiTilingExpertPassPipeline(OpPassManager &passManager,
       if (fusableLevels.contains(i)) {
         nestedModulePM.addNestedPass<func::FuncOp>(
             createLLVMCPUTileAndFusePass(i));
+        if (clEnableFuseConvVecOpPass) {
           nestedModulePM.addNestedPass<func::FuncOp>(
-            createFuseConvVecOpPass(clEnableNpuOpFastMath));
+              createFuseConvVecOpPass(clEnableNpuFuseOpFastMath));
+        }
         nestedModulePM.addNestedPass<func::FuncOp>(
             createFuseTensorPadWithConsumerPass());
         nestedModulePM.addNestedPass<func::FuncOp>(
@@ -467,8 +477,10 @@ void addConvTileAndDecomposeExpertPassPipeline(
 
   nestedModulePM.addNestedPass<func::FuncOp>(createLLVMCPUTileAndFusePass(
       tilingConfig.getVectorCommonParallelLevel()));
+  if (clEnableFuseConvVecOpPass) {
     nestedModulePM.addNestedPass<func::FuncOp>(
-      createFuseConvVecOpPass(clEnableNpuOpFastMath));
+        createFuseConvVecOpPass(clEnableNpuFuseOpFastMath));
+  }
   nestedModulePM.addNestedPass<func::FuncOp>(
       createFuseTensorPadWithConsumerPass());
   nestedModulePM.addNestedPass<func::FuncOp>(
@@ -478,8 +490,10 @@ void addConvTileAndDecomposeExpertPassPipeline(
       createLLVMCPUTilePass(tilingConfig.getVectorReductionLevel()));
   nestedModulePM.addNestedPass<func::FuncOp>(
       createLLVMCPUTileAndFusePass(tilingConfig.getVectorInnerParallelLevel()));
+  if (clEnableFuseConvVecOpPass) {
     nestedModulePM.addNestedPass<func::FuncOp>(
-      createFuseConvVecOpPass(clEnableNpuOpFastMath));
+        createFuseConvVecOpPass(clEnableNpuFuseOpFastMath));
+  }
   nestedModulePM.addNestedPass<func::FuncOp>(
       createDecomposeConvolutionToLowerDimOpsPass());
 

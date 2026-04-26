@@ -3,8 +3,8 @@
 // just include this header and call `registerNPUFuseOpDialects(registry)` to
 // ensure the dialect is available.
 
-#ifndef IREE_COMPILER_DIALECT_NPU_NPUFUSEDIALECT_H_
-#define IREE_COMPILER_DIALECT_NPU_NPUFUSEDIALECT_H_
+#ifndef IREE_COMPILER_DIALECT_NPUFUSEOP_NPUFUSEDIALECT_H_
+#define IREE_COMPILER_DIALECT_NPUFUSEOP_NPUFUSEDIALECT_H_
 
 #include "mlir/IR/Dialect.h"
 #include "llvm/ADT/StringRef.h"
@@ -39,4 +39,4 @@ void registerNPUFuseDialect(mlir::MLIRContext *context);
 } // namespace iree
 } // namespace mlir
 
-#endif // IREE_COMPILER_DIALECT_NPU_NPUFUSEDIALECT_H_
+#endif // IREE_COMPILER_DIALECT_NPUFUSEOP_NPUFUSEDIALECT_H_

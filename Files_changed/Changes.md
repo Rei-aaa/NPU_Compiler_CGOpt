@@ -4,7 +4,7 @@
 
 ## 1 方言和操作
 
-### iree\compiler\src\iree\compiler\Dialect\NPUFuseOp
+### iree\compiler\src\iree\compiler\Dialect\NPUOp
 
 iree\compiler\src\iree\compiler\Dialect\ 新建NPUFuseOp文件夹，文件夹下包括：
 
@@ -192,18 +192,15 @@ def FuseConvVecOp :
 // 头文件
 #include "iree/compiler/Codegen/LLVMCPU/FuseConvVecOp.h"
 
-// 385 行：
-        nestedModulePM.addNestedPass<func::FuncOp>(createFuseConvVecOpPass());
-```
-
-具体位置，新加pass目前加在LLVMCPUTileAndFuse pass之后：
-
-```cpp
-
-void addMultiTilingExpertPassPipeline(OpPassManager &passManager,
+// 373 行：
+        void addMultiTilingExpertPassPipeline(OpPassManager &passManager,
                                       TilingConfig &tilingConfig,
                                       LLVMCPUPipelineOptions &pipelineOpt) {
-    ......
+  addTileAndDistributePasses(passManager);
+
+  OpPassManager &nestedModulePM = passManager.nest<ModuleOp>();
+
+  SmallVector<int64_t> allFusableLevels(tilingConfig.getFusableLevels());
   // Apply tile and fuse to all the non-distribution fusable levels. Skip
   // distribution level as that level has been fused already.
   if (allFusableLevels.size() > 1) {
@@ -215,18 +212,10 @@ void addMultiTilingExpertPassPipeline(OpPassManager &passManager,
       if (fusableLevels.contains(i)) {
         nestedModulePM.addNestedPass<func::FuncOp>(
             createLLVMCPUTileAndFusePass(i));
-          // 新加pass在这里：
-        nestedModulePM.addNestedPass<func::FuncOp>(createFuseConvVecOpPass());
-        nestedModulePM.addNestedPass<func::FuncOp>(
-            createFuseTensorPadWithConsumerPass());
-        nestedModulePM.addNestedPass<func::FuncOp>(
-            createConcretizePadResultShapePass());
-        continue;
-      }
-
+          // 新加：
+          nestedModulePM.addNestedPass<func::FuncOp>(
+            createFuseConvVecOpPass(clEnableNpuOpFastMath));
 ```
-
-
 
 
 

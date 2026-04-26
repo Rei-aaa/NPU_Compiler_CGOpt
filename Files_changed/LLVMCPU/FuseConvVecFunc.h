@@ -45,10 +45,12 @@ using ElementwiseChain = llvm::SmallVector<Operation *, 12>;
 // 向下收集可能参与融合的算子
 bool collectFusableOps(Operation *convOp,
   Operation *&fusedGenericOp,
-  ElementwiseChain &elementwiseOps);
+  ElementwiseChain &elementwiseOps,
+  ElementwiseChain &mainDataChain);
 
-// Convert elementwise chains to npuop PE/activation ops in-order.
-void convertToNpuOp(linalg::GenericOp genericOp,
+// Convert elementwise chains to npufuseop PE/activation ops in-order.
+void convertToNpuOp(Operation *convOp,
+  linalg::GenericOp genericOp,
   ElementwiseChain &elementwiseOps,
   PatternRewriter &rewriter);
 
@@ -59,9 +61,9 @@ void foldConstantElementwiseOps(linalg::GenericOp genericOp,
   FusionPatternInfo &pattern,
   bool enableFastMath);
 
-// 根据匹配信息创建新的融合算子（默认 npuop.conv_add）
+// 根据匹配信息创建新的融合算子（默认 npufuseop.conv_add）
 Operation *rewriteWithFusedOp(Operation *convOp,
-  Operation *fusedGenericOp,
+  Operation *&fusedGenericOp,
   const ElementwiseChain &elementwiseOps,
   const FusionPatternInfo &pattern,
             PatternRewriter &rewriter,

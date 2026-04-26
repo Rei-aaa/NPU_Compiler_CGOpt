@@ -44,6 +44,10 @@ static void copyAttrsToCall(Operation *from, Operation *to) {
   }
 }
 
+static bool isSupportedCallBoundaryType(Type type) {
+  return isa<BaseMemRefType, RankedTensorType>(type);
+}
+
 class ConvertNPUUnaryToCallPattern : public RewritePattern {
 public:
   ConvertNPUUnaryToCallPattern(MLIRContext *context, StringRef rootOpName,
@@ -53,16 +57,10 @@ public:
 
   LogicalResult matchAndRewrite(Operation *op,
                                 PatternRewriter &rewriter) const override {
-    // Only rewrite the bufferized form: all operands/results must be memrefs,
-    // with exactly one result and at least one operand.
-    bool allMemRefOperands =
-        llvm::all_of(op->getOperandTypes(),
-                     [](Type type) { return isa<BaseMemRefType>(type); });
-    bool allMemRefResults =
-        llvm::all_of(op->getResultTypes(),
-                     [](Type type) { return isa<BaseMemRefType>(type); });
-    if (!allMemRefOperands || !allMemRefResults || op->getNumResults() != 1 ||
-        op->getNumOperands() == 0) {
+    // Rewrite both tensor and memref forms so this pass can run before DPS.
+    if (!llvm::all_of(op->getOperandTypes(), isSupportedCallBoundaryType) ||
+      !llvm::all_of(op->getResultTypes(), isSupportedCallBoundaryType) ||
+      op->getNumResults() != 1 || op->getNumOperands() == 0) {
       return failure();
     }
 
@@ -115,7 +113,7 @@ struct ConvertNPUUnaryOpsToCallsPass
   }
 
   StringRef getDescription() const override {
-      return "Converts bufferized npuop.softmax/layer_norm to result-returning "
+      return "Converts npufuseop.softmax/layer_norm to result-returning "
         "func.call";
   }
 
@@ -123,9 +121,9 @@ struct ConvertNPUUnaryOpsToCallsPass
     RewritePatternSet patterns(&getContext());
     // Lower standalone unary NPU ops to runtime-call form.
     patterns.add<ConvertNPUUnaryToCallPattern>(
-      &getContext(), "npuop.layer_norm", "npu_layer_norm");
+      &getContext(), "npufuseop.layer_norm", "npu_layer_norm");
     patterns.add<ConvertNPUUnaryToCallPattern>(
-      &getContext(), "npuop.softmax", "npu_softmax");
+      &getContext(), "npufuseop.softmax", "npu_softmax");
 
     if (failed(
             applyPatternsAndFoldGreedily(getOperation(), std::move(patterns)))) {

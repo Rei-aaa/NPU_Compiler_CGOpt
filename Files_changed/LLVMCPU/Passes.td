@@ -241,7 +241,7 @@ def FuseConvVecOp :
   let summary = "Fuse linalg.conv_2d_nchw_fchw + element-wise op chains";
   let description = [{
     Detects a linalg.conv_2d_nchw_fchw followed by generics and
-    replaces the chain with a npuop.conv_2d op that encodes the
+    replaces the chain with a npufuseop.conv_2d op that encodes the
     combined semantics for downstream lowering.
   }];
   let constructor = "mlir::iree_compiler::createFuseConvVecOpPass()";

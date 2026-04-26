@@ -1,58 +1,11 @@
 include "mlir/IR/OpBase.td"
-
-// NPUFuseOp 接口
-def NPUFuseOpCallableInterface : OpInterface<"NPUFuseOpCallableInterface"> {
-  let description = [{
-  Exposes NPU fused op calling conventions to lowering passes: provides
-  external callee name and operand role indices to build a unified
-  tensor -> memref -> func.call -> tensor lowering path.
-  }];
-
-  let methods = [
-    InterfaceMethod<
-      "Return the external NPU callee symbol name; each op must define it.",
-      "::llvm::StringRef", "getNpuCalleeName", (ins)>,
-
-    InterfaceMethod<
-      "Return the operand index of the main input tensor, or -1 if absent.",
-      "int", "getInputOperandIndex", (ins)>,
-
-    InterfaceMethod<
-      "Return the operand index of the convolution filter, or -1 if absent.",
-      "int", "getFilterOperandIndex", (ins)>,
-
-    InterfaceMethod<
-      "Return the operand index of bias/addend, or -1 when this role is not present.",
-      "int", "getBiasOperandIndex", (ins)>,
-
-    InterfaceMethod<
-      "Return the operand index of batchnorm mean, or -1 when absent.",
-      "int", "getBnMeanOperandIndex", (ins)>,
-
-    InterfaceMethod<
-      "Return the operand index of batchnorm variance, or -1 when absent.",
-      "int", "getBnVarianceOperandIndex", (ins)>,
-
-    InterfaceMethod<
-      "Return the operand index of batchnorm scale (gamma), or -1 when absent.",
-      "int", "getBnScaleOperandIndex", (ins)>,
-
-    InterfaceMethod<
-      "Return the operand index of batchnorm offset (beta), or -1 when absent.",
-      "int", "getBnOffsetOperandIndex", (ins)>,
-
-    InterfaceMethod<
-      "Return the operand index of the outs/init tensor, or -1 if absent.",
-      "int", "getOutsOperandIndex", (ins)>,
-
-    InterfaceMethod<
-      "Return the result index carrying the primary output, or -1 if absent.",
-      "int", "getOutputResultIndex", (ins)>
-  ];
-}
+include "mlir/Interfaces/DestinationStyleOpInterface.td"
 
 // ranked tensor 或 memref
+// Ranked tensor or memref.
 def AnyRankedTensorOrMemRefType : AnyTypeOf<[AnyRankedTensor, AnyMemRef]>;
+// ranked tensor, memref, or scalar float
+def AnyRankedTensorOrMemRefOrFloatType : AnyTypeOf<[AnyRankedTensor, AnyMemRef, AnyFloat]>;
 
 def NPUFuseOp_Dialect : Dialect {
   let name = "npufuseop";
@@ -62,90 +15,232 @@ def NPUFuseOp_Dialect : Dialect {
 class NPUFuseOp_Op<string mnemonic, list<Trait> traits = []> :
     Op<NPUFuseOp_Dialect, mnemonic, traits>;
 
-// Fused conv + add + relu op 
-def ConvAddReluOp : NPUFuseOp_Op<"conv_add_relu", [NPUFuseOpCallableInterface]> {
-  let summary = "Fused convolution + add + relu";
+
+// Fused conv_2d with optional PE tensors
+def Conv2DOp : NPUFuseOp_Op<"conv_2d", [AttrSizedOperandSegments]> {
+  let summary = "Convolution with optional PE tensors";
   let description = [{
-    Fuse a convolution, bias add, and relu into a single op. The op accepts
-    ranked tensor operands for the input feature map, filter, bias (or folded
-    element-wise add), and the destination tensor used as an "outs" operand.
+    Convolution op with fixed input and filter operands, plus optional
+    PE tensors for additional processing stages.
   }];
 
   let arguments = (ins
     AnyRankedTensorOrMemRefType:$input,
     AnyRankedTensorOrMemRefType:$filter,
-    AnyRankedTensorOrMemRefType:$bias,
-    AnyRankedTensorOrMemRefType:$output_init
+    Optional<AnyRankedTensorOrMemRefType>:$pe1_a,
+    Optional<AnyRankedTensorOrMemRefType>:$pe1_b,
+    Optional<AnyRankedTensorOrMemRefType>:$pe2_a,
+    Optional<AnyRankedTensorOrMemRefType>:$pe2_b,
+    Optional<AnyRankedTensorOrMemRefType>:$pe3_a,
+    Optional<AnyRankedTensorOrMemRefType>:$pe3_b
   );
 
   let results = (outs AnyRankedTensorOrMemRefType:$output);
 
-  // getOutputResultIndex是按照输出的顺序
-  let extraClassDeclaration = [{
-    ::llvm::StringRef getNpuCalleeName() { return "npu_conv_add_relu"; }
-    int getInputOperandIndex() { return 0; }
-    int getFilterOperandIndex() { return 1; }
-    int getBiasOperandIndex() { return 2; }
-    int getBnMeanOperandIndex() { return -1; }
-    int getBnVarianceOperandIndex() { return -1; }
-    int getBnScaleOperandIndex() { return -1; }
-    int getBnOffsetOperandIndex() { return -1; }
-    int getOutsOperandIndex() { return 3; }
-    int getOutputResultIndex() { return 0; }
-  }];
-
   let assemblyFormat = [{
-    attr-dict
-    `ins` `(` $input `,` $filter `,` $bias `:`
-    type($input) `,` type($filter) `,` type($bias) `)`
-    `outs` `(` $output_init `:` type($output_init) `)`
+    $input `,` $filter
+    (`,` $pe1_a^)?
+    (`,` $pe1_b^)?
+    (`,` $pe2_a^)?
+    (`,` $pe2_b^)?
+    (`,` $pe3_a^)?
+    (`,` $pe3_b^)?
+    attr-dict `:`
+    type($input) `,` type($filter)
+    (`,` type($pe1_a)^)?
+    (`,` type($pe1_b)^)?
+    (`,` type($pe2_a)^)?
+    (`,` type($pe2_b)^)?
+    (`,` type($pe3_a)^)?
+    (`,` type($pe3_b)^)?
     `->` type($output)
   }];
+
 }
- 
-// Fused conv + add + batchnorm + relu op
-def ConvAddBnReluOp : NPUFuseOp_Op<"conv_add_bn_relu", [NPUFuseOpCallableInterface]> {
-  let summary = "Fused convolution + add + batchnorm + relu";
+
+// Activation ops used as intermediate fusion forms
+def ReluOp : NPUFuseOp_Op<"relu"> {
+  let summary = "ReLU activation";
+  let arguments = (ins AnyRankedTensorOrMemRefOrFloatType:$input);
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def LeakyReluOp : NPUFuseOp_Op<"leakyrelu"> {
+  let summary = "LeakyReLU activation";
+  let arguments = (ins AnyRankedTensorOrMemRefOrFloatType:$input);
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def SiluOp : NPUFuseOp_Op<"silu"> {
+  let summary = "SiLU activation";
+  let arguments = (ins AnyRankedTensorOrMemRefOrFloatType:$input);
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def SigmoidOp : NPUFuseOp_Op<"sigmoid"> {
+  let summary = "Sigmoid activation";
+  let arguments = (ins AnyRankedTensorOrMemRefOrFloatType:$input);
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def GeluOp : NPUFuseOp_Op<"gelu"> {
+  let summary = "GELU activation";
+  let arguments = (ins AnyRankedTensorOrMemRefOrFloatType:$input);
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def TanhOp : NPUFuseOp_Op<"tanh"> {
+  let summary = "Tanh activation";
+  let arguments = (ins AnyRankedTensorOrMemRefOrFloatType:$input);
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def LayerNormOp : NPUFuseOp_Op<"layer_norm", [
+  AttrSizedOperandSegments,
+  DeclareOpInterfaceMethods<DestinationStyleOpInterface>]> {
+  let summary = "Layer normalization";
   let description = [{
-    Fuse a convolution, element-wise add/bias, batch normalization, and relu into
-    a single op. The op accepts ranked tensor operands for the input feature map,
-    filter, add/bias, batchnorm parameters (mean, variance, scale, offset), and
-    the destination tensor used as an "outs" operand.
+    Layer normalization op with input tensor, optional weight/bias tensors,
+    and attributes for normalized shape, epsilon, and optional cudnn-enable.
   }];
 
   let arguments = (ins
-    AnyRankedTensorOrMemRefType:$input,
-    AnyRankedTensorOrMemRefType:$filter,
-    AnyRankedTensorOrMemRefType:$bias,
-    AnyRankedTensorOrMemRefType:$bn_mean,
-    AnyRankedTensorOrMemRefType:$bn_variance,
-    AnyRankedTensorOrMemRefType:$bn_scale,
-    AnyRankedTensorOrMemRefType:$bn_offset,
-    AnyRankedTensorOrMemRefType:$output_init
+    AnyType:$input,
+    Optional<AnyType>:$weight,
+    Optional<AnyType>:$bias,
+    AnyType:$output_init,
+    DenseI64ArrayAttr:$normalized_shape,
+    F64Attr:$eps,
+    OptionalAttr<BoolAttr>:$cudnn_enable
   );
 
-  let results = (outs AnyRankedTensorOrMemRefType:$output);
-
-  let extraClassDeclaration = [{
-    ::llvm::StringRef getNpuCalleeName() { return "npu_conv_add_bn_relu"; }
-    int getInputOperandIndex() { return 0; }
-    int getFilterOperandIndex() { return 1; }
-    int getBiasOperandIndex() { return 2; }
-    int getBnMeanOperandIndex() { return 3; }
-    int getBnVarianceOperandIndex() { return 4; }
-    int getBnScaleOperandIndex() { return 5; }
-    int getBnOffsetOperandIndex() { return 6; }
-    int getOutsOperandIndex() { return 7; }
-    int getOutputResultIndex() { return 0; }
-  }];
+  let results = (outs AnyType:$output);
 
   let assemblyFormat = [{
-    attr-dict
-    `ins` `(` $input `,` $filter `,` $bias `,` $bn_mean `,` $bn_variance `,`
-    $bn_scale `,` $bn_offset `:`
-    type($input) `,` type($filter) `,` type($bias) `,` type($bn_mean) `,`
-    type($bn_variance) `,` type($bn_scale) `,` type($bn_offset) `)`
-    `outs` `(` $output_init `:` type($output_init) `)`
+    $input
+    (`,` $weight^)?
+    (`,` $bias^)?
+    `,` $output_init
+    attr-dict `:`
+    type($input)
+    (`,` type($weight)^)?
+    (`,` type($bias)^)?
+    `,` type($output_init)
     `->` type($output)
   }];
 }
+
+def SoftmaxOp : NPUFuseOp_Op<"softmax", [
+    DeclareOpInterfaceMethods<DestinationStyleOpInterface>]> {
+  let summary = "Softmax";
+  let description = [{
+    Softmax op with input tensor and attributes for reduction dimension and
+    optional dtype.
+  }];
+
+  let arguments = (ins
+    AnyType:$input,
+    AnyType:$output_init,
+    I64Attr:$dim,
+    OptionalAttr<I64Attr>:$dtype
+  );
+
+  let results = (outs AnyType:$output);
+
+  let assemblyFormat = [{
+    $input `,` $output_init attr-dict `:`
+    type($input) `,` type($output_init) `->` type($output)
+  }];
+}
+
+// PE ops used as intermediate fusion forms
+def PE1AOp : NPUFuseOp_Op<"PE1_a"> {
+  let summary = "PE1_a multiply-like op";
+  let arguments = (ins
+    AnyRankedTensorOrMemRefOrFloatType:$lhs,
+    AnyRankedTensorOrMemRefOrFloatType:$rhs
+  );
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($output)
+  }];
+}
+
+def PE1BOp : NPUFuseOp_Op<"PE1_b"> {
+  let summary = "PE1_b add-like op";
+  let arguments = (ins
+    AnyRankedTensorOrMemRefOrFloatType:$lhs,
+    AnyRankedTensorOrMemRefOrFloatType:$rhs
+  );
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($output)
+  }];
+}
+
+def PE2AOp : NPUFuseOp_Op<"PE2_a"> {
+  let summary = "PE2_a multiply-like op";
+  let arguments = (ins
+    AnyRankedTensorOrMemRefOrFloatType:$lhs,
+    AnyRankedTensorOrMemRefOrFloatType:$rhs
+  );
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($output)
+  }];
+}
+
+def PE2BOp : NPUFuseOp_Op<"PE2_b"> {
+  let summary = "PE2_b add-like op";
+  let arguments = (ins
+    AnyRankedTensorOrMemRefOrFloatType:$lhs,
+    AnyRankedTensorOrMemRefOrFloatType:$rhs
+  );
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($output)
+  }];
+}
+
+def PE3AOp : NPUFuseOp_Op<"PE3_a"> {
+  let summary = "PE3_a multiply-like op";
+  let arguments = (ins
+    AnyRankedTensorOrMemRefOrFloatType:$lhs,
+    AnyRankedTensorOrMemRefOrFloatType:$rhs
+  );
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($output)
+  }];
+}
+
+def PE3BOp : NPUFuseOp_Op<"PE3_b"> {
+  let summary = "PE3_b add-like op";
+  let arguments = (ins
+    AnyRankedTensorOrMemRefOrFloatType:$lhs,
+    AnyRankedTensorOrMemRefOrFloatType:$rhs
+  );
+  let results = (outs AnyRankedTensorOrMemRefOrFloatType:$output);
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) `->` type($output)
+  }];
+}
+
